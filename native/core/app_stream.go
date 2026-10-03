@@ -95,11 +95,7 @@ func (stream *nativeStreamServer) nativeOpen(media providerMedia) (string, strin
 	stream.sessions[token] = session
 	stream.mu.Unlock()
 	entry := nativeStreamAsset{address: media.URL, contentType: "video/mp4"}
-	isHLS := media.Playlist != "" || len(media.HLSKey) > 0 || strings.Contains(strings.ToLower(media.URL), "m3u8") || strings.Contains(strings.ToLower(media.URL), "hls")
-	if isHLS {
-		entry.contentType = "application/vnd.apple.mpegurl"
-	}
-	if parsed, err := url.Parse(media.URL); err == nil && strings.HasSuffix(strings.ToLower(parsed.Path), ".m3u8") {
+	if nativeMediaIsPlaylist(media) {
 		entry.contentType = "application/vnd.apple.mpegurl"
 	}
 	if media.Playlist != "" {
@@ -142,6 +138,25 @@ func (stream *nativeStreamServer) nativeAsset(token string, session *nativeStrea
 	}
 	session.mu.Unlock()
 	return stream.address + "/" + token + "/" + id
+}
+
+func nativeMediaIsPlaylist(media providerMedia) bool {
+	if media.Playlist != "" || len(media.HLSKey) > 0 {
+		return true
+	}
+	return nativePathLooksLikePlaylist(media.URL)
+}
+
+func nativePathLooksLikePlaylist(address string) bool {
+	parsed, err := url.Parse(address)
+	if err != nil {
+		return false
+	}
+	return strings.HasSuffix(strings.ToLower(parsed.Path), ".m3u8")
+}
+
+func nativeBodyLooksLikePlaylist(body []byte) bool {
+	return strings.HasPrefix(strings.TrimSpace(strings.TrimPrefix(string(body), "\ufeff")), "#EXTM3U")
 }
 
 func (stream *nativeStreamServer) nativeRewrite(token string, session *nativeStreamSession, body, base string) (string, error) {
@@ -301,11 +316,11 @@ func (stream *nativeStreamServer) nativeServe(writer http.ResponseWriter, reques
 	if response.Request != nil && response.Request.URL != nil {
 		finalURL = response.Request.URL
 	}
-	playlist := strings.Contains(asset.contentType, "mpegurl") || strings.Contains(contentType, "mpegurl") || strings.HasSuffix(strings.ToLower(finalURL.Path), ".m3u8") || strings.Contains(strings.ToLower(finalURL.String()), "m3u8") || len(session.key) > 0
+	playlist := strings.Contains(asset.contentType, "mpegurl") || strings.Contains(contentType, "mpegurl") || nativePathLooksLikePlaylist(asset.address) || strings.HasSuffix(strings.ToLower(finalURL.Path), ".m3u8")
 	reader := bufio.NewReader(response.Body)
 	if !playlist && request.Method == http.MethodGet {
 		peek, _ := reader.Peek(512)
-		if strings.HasPrefix(strings.TrimSpace(strings.TrimPrefix(string(peek), "\ufeff")), "#EXTM3U") {
+		if nativeBodyLooksLikePlaylist(peek) {
 			playlist = true
 		}
 	}
@@ -320,11 +335,11 @@ func (stream *nativeStreamServer) nativeServe(writer http.ResponseWriter, reques
 			http.Error(writer, "播放列表过大或读取失败", http.StatusBadGateway)
 			return
 		}
-		text := strings.TrimSpace(strings.TrimPrefix(string(body), "\ufeff"))
-		if !strings.HasPrefix(text, "#EXTM3U") {
+		if !nativeBodyLooksLikePlaylist(body) {
 			http.Error(writer, "播放列表无效", http.StatusBadGateway)
 			return
 		}
+		text := strings.TrimSpace(strings.TrimPrefix(string(body), "\ufeff"))
 		rewritten, err := stream.nativeRewrite(parts[0], session, text, finalURL.String())
 		if err != nil {
 			http.Error(writer, err.Error(), http.StatusBadGateway)

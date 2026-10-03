@@ -142,3 +142,47 @@ func TestNativeHLSExtensionlessPlaylistsAndRedirectBase(t *testing.T) {
 		t.Fatal("segment body changed")
 	}
 }
+
+func TestNativeStreamKeepsHlsPathMp4AsMedia(t *testing.T) {
+	const payload = "ftypmp42mdat"
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/video/hls/clip.mp4" || r.URL.Query().Get("token") != "m3u8-lookalike" {
+			t.Errorf("unexpected request: %s", r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "video/mp4")
+		io.WriteString(w, payload)
+	}))
+	defer upstream.Close()
+	engine, err := newNativeEngine(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := newNativeStreamServer(engine.downloader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.server.Close()
+	address, token := stream.nativeOpen(providerMedia{
+		URL:     upstream.URL + "/video/hls/clip.mp4?token=m3u8-lookalike",
+		CENCKey: []byte("0123456789abcdef"),
+		Referer: "https://novel.snssdk.com/",
+	})
+	defer stream.nativeRelease(token)
+	if strings.HasSuffix(address, ".m3u8") {
+		t.Fatalf("encrypted mp4 was published as a playlist: %s", address)
+	}
+	response, err := http.Get(address)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil || response.StatusCode != http.StatusOK {
+		t.Fatalf("proxy rejected encrypted mp4: %v %d %s", err, response.StatusCode, body)
+	}
+	if string(body) != payload {
+		t.Fatalf("mp4 body changed: %q", body)
+	}
+}
