@@ -168,39 +168,43 @@ jobs:
           cache: true
       - name: Enable Git long paths
         run: git config --system core.longpaths true
-      - uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-      - uses: msys2/setup-msys2@v2
-        id: msys2
-        with:
-          msystem: UCRT64
-          update: false
-          path-type: inherit
-          install: mingw-w64-ucrt-x86_64-gcc
-      - name: Add UCRT64 GCC to PATH
-        shell: bash
+      - name: Install MinGW-w64
+        shell: pwsh
         run: |
-          bin="${{ steps.msys2.outputs.msys2-location }}/ucrt64/bin"
-          echo "$bin" >> "$GITHUB_PATH"
-          echo "CC=$bin/x86_64-w64-mingw32-gcc.exe" >> "$GITHUB_ENV"
+          choco install mingw --yes --no-progress
+          $directories = @(
+            'C:\ProgramData\mingw64\mingw64\bin',
+            'C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin',
+            'C:\tools\mingw64\bin'
+          )
+          $bin = $directories | Where-Object { Test-Path (Join-Path $_ 'gcc.exe') } | Select-Object -First 1
+          if (-not $bin -and $env:ChocolateyInstall) {
+            $shim = Join-Path $env:ChocolateyInstall 'bin'
+            if (Test-Path (Join-Path $shim 'gcc.exe')) { $bin = $shim }
+          }
+          if (-not $bin) { throw '未找到 gcc.exe，MinGW 安装失败。' }
+          echo $bin >> $env:GITHUB_PATH
+          $gcc = Join-Path $bin 'x86_64-w64-mingw32-gcc.exe'
+          if (-not (Test-Path $gcc)) { $gcc = Join-Path $bin 'gcc.exe' }
+          echo "MINGW_CC=$gcc" >> $env:GITHUB_ENV
+          Write-Host "MinGW bin=$bin cc=$gcc"
       - name: Verify MinGW
         shell: bash
         run: |
           command -v gcc
           gcc -dumpmachine
           gcc --version | head -n 1
-      - name: Build Windows packages
-        shell: bash
-        run: |
-          set -o pipefail
-          python scripts/build_windows.py ${{ matrix.arguments }} 2>&1 | tee windows-build.log
-      - uses: actions/upload-artifact@v4
-        if: failure()
+      - name: Build native core
+        env:
+          CC: ${{ env.MINGW_CC }}
+        run: python scripts/build_native.py --platform windows ${{ matrix.arguments }}
+      - uses: ilammy/msvc-dev-cmd@v1
         with:
-          name: ${{ matrix.edition }}-windows-log
-          path: windows-build.log
-          if-no-files-found: ignore
+          arch: x64
+      - name: Build Windows packages
+        env:
+          CC: cl
+        run: python scripts/build_windows.py --skip-native ${{ matrix.arguments }}
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.edition }}-windows

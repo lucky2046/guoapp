@@ -66,7 +66,12 @@ if options.platform == 'android':
             extra['GOARM'] = '7'
         build('android', architecture, compiler, output, extra)
 elif options.platform == 'windows':
-    compiler = shutil.which('x86_64-w64-mingw32-gcc') or (shutil.which('gcc') if platform.system() == 'Windows' else None)
+    env_cc = os.environ.get('CC', '').strip()
+    env_name = Path(env_cc).name.lower() if env_cc else ''
+    if env_cc and env_name not in {'cl', 'cl.exe'}:
+        compiler = env_cc if Path(env_cc).exists() else shutil.which(env_cc)
+    else:
+        compiler = shutil.which('x86_64-w64-mingw32-gcc') or (shutil.which('gcc') if platform.system() == 'Windows' else None)
     if not compiler:
         raise SystemExit('请安装 MinGW-w64，并将其 bin 目录加入 PATH。')
     print('Using C compiler ' + compiler, flush=True)
