@@ -28,7 +28,9 @@ if bootstrap_env['GOSUMDB'] == 'off':
     bootstrap_env['GOSUMDB'] = 'sum.golang.org'
 toolchain_root = subprocess.check_output([go, 'env', 'GOROOT'], cwd=root / 'native',
     env=bootstrap_env, text=True).strip()
-go = str(Path(toolchain_root) / 'bin' / ('go.exe' if platform.system() == 'Windows' else 'go'))
+toolchain_go = Path(toolchain_root) / 'bin' / ('go.exe' if platform.system() == 'Windows' else 'go')
+if toolchain_go.is_file():
+    go = str(toolchain_go)
 
 def build(goos, architecture, compiler, output, extra=None):
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -68,8 +70,7 @@ elif options.platform == 'windows':
     if not compiler:
         raise SystemExit('请安装 MinGW-w64，并将其 bin 目录加入 PATH。')
     print('Using C compiler ' + compiler, flush=True)
-    build('windows', 'amd64', compiler, root / 'windows' / 'runner' / 'duanju_core.dll',
-          {'CGO_LDFLAGS': '-static-libgcc'})
+    build('windows', 'amd64', compiler, root / 'windows' / 'runner' / 'duanju_core.dll')
 else:
     compiler = shutil.which('clang')
     if not compiler:

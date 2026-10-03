@@ -142,7 +142,7 @@ jobs:
 
   windows:
     name: Windows (${{ matrix.edition }})
-    runs-on: windows-latest
+    runs-on: windows-2022
     timeout-minutes: 75
     strategy:
       fail-fast: false
@@ -168,22 +168,39 @@ jobs:
           cache: true
       - name: Enable Git long paths
         run: git config --system core.longpaths true
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
       - uses: msys2/setup-msys2@v2
         id: msys2
         with:
-          msystem: MINGW64
+          msystem: UCRT64
           update: false
-          install: mingw-w64-x86_64-gcc
-      - name: Add MinGW GCC to PATH
+          path-type: inherit
+          install: mingw-w64-ucrt-x86_64-gcc
+      - name: Add UCRT64 GCC to PATH
         shell: bash
-        run: echo "${{ steps.msys2.outputs.msys2-location }}/mingw64/bin" >> "$GITHUB_PATH"
+        run: |
+          bin="${{ steps.msys2.outputs.msys2-location }}/ucrt64/bin"
+          echo "$bin" >> "$GITHUB_PATH"
+          echo "CC=$bin/x86_64-w64-mingw32-gcc.exe" >> "$GITHUB_ENV"
       - name: Verify MinGW
         shell: bash
         run: |
           command -v gcc
           gcc -dumpmachine
           gcc --version | head -n 1
-      - run: python scripts/build_windows.py ${{ matrix.arguments }}
+      - name: Build Windows packages
+        shell: bash
+        run: |
+          set -o pipefail
+          python scripts/build_windows.py ${{ matrix.arguments }} 2>&1 | tee windows-build.log
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ${{ matrix.edition }}-windows-log
+          path: windows-build.log
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.edition }}-windows
@@ -230,7 +247,15 @@ jobs:
           command -v pod
           pod --version
       - name: Build unsigned iOS packages
-        run: python3 scripts/build_ios.py ${{ matrix.arguments }}
+        run: |
+          set -o pipefail
+          python3 scripts/build_ios.py ${{ matrix.arguments }} 2>&1 | tee ios-build.log
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ${{ matrix.edition }}-ios-log
+          path: ios-build.log
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.edition }}-ios-unsigned

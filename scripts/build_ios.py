@@ -14,7 +14,19 @@ root = Path(__file__).resolve().parents[1]
 
 
 def run(arguments, **kwargs):
+    print('+', ' '.join(str(item) for item in arguments), flush=True)
     subprocess.run(arguments, cwd=kwargs.pop('cwd', root), check=True, **kwargs)
+
+
+def write_ios_cc(directory, compiler, triple, sdk_path):
+    minimum = '-mios-simulator-version-min=15.1' if 'simulator' in triple else '-miphoneos-version-min=15.1'
+    wrapper = directory / 'cc'
+    wrapper.write_text(
+        '#!/bin/sh\nexec "%s" -target %s -isysroot "%s" %s "$@"\n' % (compiler, triple, sdk_path, minimum),
+        encoding='utf-8',
+    )
+    wrapper.chmod(0o755)
+    return wrapper
 
 
 def build_core(simulator=False, variant=BuildVariant()):
@@ -42,10 +54,11 @@ def build_core(simulator=False, variant=BuildVariant()):
         headers = directory / 'Headers'
         headers.mkdir(parents=True, exist_ok=True)
         output = directory / 'libDuanjuCore.a'
-        cflags = '-isysroot %s -target %s -miphoneos-version-min=15.1' % (sdk_path, triple)
+        wrapper = write_ios_cc(directory, compiler, triple, sdk_path)
+        print('iOS CC', wrapper, 'sdk', sdk_path, flush=True)
         build_env = environment | {
-            'GOOS': 'ios', 'GOARCH': architecture, 'CC': compiler, 'SDKROOT': sdk_path,
-            'CGO_CFLAGS': cflags, 'CGO_LDFLAGS': cflags + ' -lresolv',
+            'GOOS': 'ios', 'GOARCH': architecture, 'CC': str(wrapper), 'CXX': str(wrapper),
+            'SDKROOT': sdk_path, 'IPHONEOS_DEPLOYMENT_TARGET': '15.1',
         }
         run([go, 'build', '-trimpath', '-buildmode=c-archive', '-ldflags=' + variant.linker_flags,
              '-o', str(output), './bridge'], cwd=root / 'native', env=build_env)
