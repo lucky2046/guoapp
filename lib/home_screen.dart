@@ -33,6 +33,7 @@ import 'batch_downloads.dart';
 import 'drama_actions.dart';
 import 'library_updater.dart';
 import 'saved_library.dart';
+import 'share_clipboard.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, required this.repository, required this.store});
@@ -42,7 +43,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   static const _recommendationCategory = 'app:recommendations';
   final _search = TextEditingController();
   final _scroll = ScrollController();
@@ -73,6 +74,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final _recentTaps = RepeatTapGate();
   String _sourceSignature = '';
   bool _catalogLoadScheduled = false;
+  late final ShareClipboardWatcher _shareClipboard;
 
   List<SourceGroup> get _sourceGroups {
     final groups = SourceGroup.fromSources(widget.store.sources);
@@ -423,6 +425,12 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _shareClipboard = ShareClipboardWatcher(
+      repository: widget.repository,
+      store: widget.store,
+      onOpen: (drama) => _openDrama(drama),
+    );
     _scroll.addListener(_onCatalogScroll);
     _source = SourceSite.byId(widget.store.source);
     _allSources = widget.store.catalogView.allSources;
@@ -442,10 +450,30 @@ class _HomeScreenState extends State<HomeScreen> {
     } else {
       _loading = false;
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkShareClipboard();
+      Future<void>.delayed(const Duration(milliseconds: 600), () {
+        if (mounted) _checkShareClipboard();
+      });
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkShareClipboard();
+    }
+  }
+
+  void _checkShareClipboard() {
+    if (!mounted) return;
+    unawaited(_shareClipboard.check(context));
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _shareClipboard.dispose();
     _updater.removeListener(_updateChanged);
     _updater.dispose();
     _cacheRefreshTimer?.cancel();
@@ -658,14 +686,15 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       return;
     }
-    unawaited(
-      openPlaybackDirectly(
+    unawaited((() async {
+      await openPlaybackDirectly(
         context,
         drama: drama,
         repository: widget.repository,
         store: widget.store,
-      ),
-    );
+      );
+      if (mounted) _checkShareClipboard();
+    })());
   }
 
   void _changeTab(int tab) => setState(() {

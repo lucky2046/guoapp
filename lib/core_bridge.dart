@@ -125,6 +125,8 @@ abstract class AppRepository {
   Future<SourceStatus> cancelSourceJob(String source) async =>
       throw AppFailure('当前环境不支持站源管理');
   Future<List<String>> suggestions(String query) async => const [];
+  Future<Drama?> resolveShare(String text) async => null;
+  Future<void> cancelShare() async {}
   Future<Map<String, dynamic>> storage() async => {};
   Future<String> downloadDirectory() async =>
       (await storage())['directory'] as String? ?? '';
@@ -333,6 +335,8 @@ class NativeRepository extends AppRepository {
   @override
   Future<void> cancelSuggestions() => _cancelReads('suggestions');
   @override
+  Future<void> cancelShare() => _cancelReads('share');
+  @override
   Future<void> cancelRecommendations() => _cancelReads('recommendations-');
 
   @override
@@ -460,6 +464,17 @@ class NativeRepository extends AppRepository {
   }
 
   @override
+  Future<Drama?> resolveShare(String text) async {
+    _authorize('hongguo');
+    final result = await _read('share', {'action': 'share', 'query': text});
+    final drama = result['drama'];
+    if (drama is! Map) return null;
+    final parsed = Drama.fromJson(Map<String, dynamic>.from(drama));
+    if (parsed.id.isEmpty) return null;
+    return parsed;
+  }
+
+  @override
   Future<String> downloadDirectory() async {
     _downloadPermission();
     return (await _call({'action': 'downloadDirectory'}))['directory']
@@ -525,7 +540,8 @@ class NativeRepository extends AppRepository {
       if (action == 'recommendations' ||
           action == 'cachedRecommendations' ||
           action == 'suggestions' ||
-          action == 'danmaku') {
+          action == 'danmaku' ||
+          action == 'share') {
         _authorize('hongguo');
       }
       if ({
@@ -610,6 +626,7 @@ class NativeRepository extends AppRepository {
             'suggestions',
             'recommendations',
             'metadata',
+            'share',
             'danmaku',
             'preload',
             'prepareHandoff',

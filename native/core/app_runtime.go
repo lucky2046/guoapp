@@ -367,10 +367,12 @@ func nativeDispatch(input nativeInput) (any, error) {
 		duration = 10 * time.Second
 	} else if input.Action == "preload" {
 		duration = 15 * time.Second
+	} else if input.Action == "share" {
+		duration = 25 * time.Second
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
-	if input.Action == "danmaku" || input.Action == "preload" || input.Action == "prepareHandoff" || input.Session != "" && (input.Action == "catalog" || input.Action == "categories" || input.Action == "suggestions" || input.Action == "recommendations" || input.Action == "metadata") {
+	if input.Action == "danmaku" || input.Action == "preload" || input.Action == "prepareHandoff" || input.Session != "" && (input.Action == "catalog" || input.Action == "categories" || input.Action == "suggestions" || input.Action == "recommendations" || input.Action == "metadata" || input.Action == "share") {
 		work, finish, err := engine.beginRead(ctx, input)
 		if err != nil {
 			return nil, err
@@ -415,6 +417,15 @@ func nativeDispatch(input nativeInput) (any, error) {
 	case "suggestions":
 		items, err := engine.suggestions(ctx, input.Query)
 		return map[string]any{"items": items}, err
+	case "share":
+		drama, err := engine.downloader.resolveHongguoShare(ctx, input.Query)
+		if err != nil {
+			return nil, err
+		}
+		if drama.ID == "" {
+			return map[string]any{}, nil
+		}
+		return map[string]any{"drama": nativeNormalize(drama)}, nil
 	case "downloadDirectory":
 		engine.downloads.mu.Lock()
 		root := engine.downloads.root
