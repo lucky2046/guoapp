@@ -3,7 +3,6 @@ import hashlib
 import os
 import platform
 import re
-import shlex
 import shutil
 import subprocess
 import sys
@@ -43,10 +42,10 @@ def build_core(simulator=False, variant=BuildVariant()):
         headers = directory / 'Headers'
         headers.mkdir(parents=True, exist_ok=True)
         output = directory / 'libDuanjuCore.a'
-        flags = shlex.join(['-isysroot', sdk_path, '-target', triple])
+        cflags = '-isysroot %s -target %s -miphoneos-version-min=15.1' % (sdk_path, triple)
         build_env = environment | {
-            'GOOS': 'ios', 'GOARCH': architecture, 'CC': compiler,
-            'CGO_CFLAGS': flags, 'CGO_LDFLAGS': flags,
+            'GOOS': 'ios', 'GOARCH': architecture, 'CC': compiler, 'SDKROOT': sdk_path,
+            'CGO_CFLAGS': cflags, 'CGO_LDFLAGS': cflags + ' -lresolv',
         }
         run([go, 'build', '-trimpath', '-buildmode=c-archive', '-ldflags=' + variant.linker_flags,
              '-o', str(output), './bridge'], cwd=root / 'native', env=build_env)

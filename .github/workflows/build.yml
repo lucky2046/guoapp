@@ -17,6 +17,7 @@ concurrency:
 env:
   GOPROXY: https://proxy.golang.org,direct
   GOSUMDB: sum.golang.org
+  PYTHONUNBUFFERED: '1'
 
 jobs:
   checks:
@@ -167,21 +168,21 @@ jobs:
           cache: true
       - name: Enable Git long paths
         run: git config --system core.longpaths true
-      - name: Install MinGW-w64
-        shell: pwsh
+      - uses: msys2/setup-msys2@v2
+        id: msys2
+        with:
+          msystem: MINGW64
+          update: false
+          install: mingw-w64-x86_64-gcc
+      - name: Add MinGW GCC to PATH
+        shell: bash
+        run: echo "${{ steps.msys2.outputs.msys2-location }}/mingw64/bin" >> "$GITHUB_PATH"
+      - name: Verify MinGW
+        shell: bash
         run: |
-          choco install mingw --yes --no-progress
-          $candidates = @(
-            'C:\ProgramData\mingw64\mingw64\bin',
-            'C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin',
-            'C:\tools\mingw64\bin'
-          )
-          foreach ($directory in $candidates) {
-            if (Test-Path (Join-Path $directory 'gcc.exe')) {
-              echo $directory >> $env:GITHUB_PATH
-              break
-            }
-          }
+          command -v gcc
+          gcc -dumpmachine
+          gcc --version | head -n 1
       - run: python scripts/build_windows.py ${{ matrix.arguments }}
       - uses: actions/upload-artifact@v4
         with:
@@ -216,8 +217,18 @@ jobs:
           flutter-version: '3.47.4'
           channel: stable
           cache: true
-      - name: Show Xcode
-        run: xcodebuild -version
+      - name: Setup Xcode and CocoaPods
+        run: |
+          if [ -d /Applications/Xcode.app ]; then
+            sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          fi
+          xcode-select -p
+          xcodebuild -version
+          if ! command -v pod >/dev/null; then
+            sudo gem install cocoapods
+          fi
+          command -v pod
+          pod --version
       - name: Build unsigned iOS packages
         run: python3 scripts/build_ios.py ${{ matrix.arguments }}
       - uses: actions/upload-artifact@v4
